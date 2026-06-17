@@ -1,7 +1,7 @@
 # HuggingMes - Hermes Agent Gateway for Hugging Face Spaces
 
-ARG HERMES_AGENT_VERSION=latest
-FROM nousresearch/hermes-agent:${HERMES_AGENT_VERSION}
+ARG HERMES_AGENT_VERSION
+FROM nousresearch/hermes-agent:${HERMES_AGENT_VERSION:-latest}
 
 USER root
 
