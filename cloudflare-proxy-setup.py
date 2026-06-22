@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-"""Create or reuse Cloudflare Workers for Telegram proxy and Space keep-awake."""
+"""Create or reuse Cloudflare Workers for Telegram & Discord proxy and Space keep-awake."""
 
 import json
 import os
@@ -98,10 +98,15 @@ async function handleRequest(request) {{
   const queryTarget = url.searchParams.get("proxy_target");
   const targetHost = request.headers.get("x-target-host") || queryTarget;
 
+  const autoForwardedPath = (
+    url.pathname.startsWith("/bot") ||
+    url.pathname.startsWith("/file/bot") ||
+    url.pathname.startsWith("/discord/")
+  );
+
   if (PROXY_SHARED_SECRET) {{
     const providedSecret = request.headers.get("x-proxy-key") || url.searchParams.get("proxy_key") || "";
-    const telegramStylePath = url.pathname.startsWith("/bot") || url.pathname.startsWith("/file/bot");
-    if (providedSecret !== PROXY_SHARED_SECRET && !(telegramStylePath && !targetHost)) {{
+    if (providedSecret !== PROXY_SHARED_SECRET && !(autoForwardedPath && !targetHost)) {{
       return new Response("Unauthorized: Invalid proxy key", {{ status: 401 }});
     }}
   }}
@@ -114,6 +119,8 @@ async function handleRequest(request) {{
     targetBase = `https://${{targetHost}}`;
   }} else if (url.pathname.startsWith("/bot") || url.pathname.startsWith("/file/bot")) {{
     targetBase = "https://api.telegram.org";
+  }} else if (url.pathname.startsWith("/discord/")) {{
+    targetBase = "https://discord.com";
   }} else {{
     return new Response("Invalid request: No target host provided.", {{ status: 400 }});
   }}

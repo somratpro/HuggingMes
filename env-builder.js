@@ -95,6 +95,7 @@ const ICONS = {
   "Core":      "⚡",
   "Backup":    "💾",
   "Telegram":  "📱",
+  "Discord":   "🎮",
   "Terminal":  "💻",
   "Providers": "🔑",
   "Cloudflare":"☁️",
@@ -178,6 +179,32 @@ const FIELDS = [
     "k": "TELEGRAM_BASE_URL",
     "lbl": "Custom Telegram API base URL (for proxies)",
     "type": "text", "ph": "https://proxy.example.com/bot", "tag": "optional"
+  },
+
+  // ── Discord ──
+  {
+    "g": "Discord", "icon": "🎮",
+    "k": "DISCORD_BOT_TOKEN",
+    "lbl": "Discord bot token from Developer Portal",
+    "type": "password", "secret": 1, "common": 1, "tag": "credential"
+  },
+  {
+    "g": "Discord", "icon": "🎮",
+    "k": "DISCORD_CHANNEL_ID",
+    "lbl": "Default Discord channel ID for bot messages",
+    "type": "text", "ph": "123456789012345678", "common": 1, "tag": "feature"
+  },
+  {
+    "g": "Discord", "icon": "🎮",
+    "k": "DISCORD_GUILD_ID",
+    "lbl": "Discord server (guild) ID",
+    "type": "text", "ph": "123456789012345678", "tag": "optional"
+  },
+  {
+    "g": "Discord", "icon": "🎮",
+    "k": "DISCORD_WEBHOOK_URL",
+    "lbl": "Discord webhook URL for notifications",
+    "type": "text", "ph": "https://discord.com/api/webhooks/...", "tag": "optional"
   },
 
   // ── Terminal ──
@@ -286,13 +313,13 @@ const FIELDS = [
   {
     "g": "Cloudflare", "icon": "☁️",
     "k": "CLOUDFLARE_WORKERS_TOKEN",
-    "lbl": "Cloudflare Workers API token (for Telegram proxy setup)",
+    "lbl": "Cloudflare Workers API token (for Telegram & Discord proxy setup)",
     "type": "password", "secret": 1, "tag": "credential"
   },
   {
     "g": "Cloudflare", "icon": "☁️",
     "k": "CLOUDFLARE_PROXY_URL",
-    "lbl": "Cloudflare proxy URL for Telegram (if already deployed)",
+    "lbl": "Cloudflare proxy URL for Telegram & Discord (if already deployed)",
     "type": "text", "ph": "https://your-worker.your-subdomain.workers.dev", "tag": "feature"
   },
   {
