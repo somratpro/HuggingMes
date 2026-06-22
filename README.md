@@ -18,6 +18,14 @@ secrets:
     description: "Telegram bot token from @BotFather."
   - name: TELEGRAM_ALLOWED_USERS
     description: "Comma-separated list of numeric user IDs allowed to use the bot."
+  - name: DISCORD_BOT_TOKEN
+    description: "Discord bot token from Developer Portal."
+  - name: DISCORD_CHANNEL_ID
+    description: "Default Discord channel ID for bot messages."
+  - name: DISCORD_GUILD_ID
+    description: "Discord server (guild) ID."
+  - name: DISCORD_WEBHOOK_URL
+    description: "Discord webhook URL for notifications."
   - name: HF_TOKEN
     description: "Hugging Face token with write access. Used for automatic workspace backup and HF providers."
   - name: CLOUDFLARE_WORKERS_TOKEN
@@ -85,6 +93,10 @@ In your Space's **Settings → Variables and secrets**, add these under **Secret
 - `GATEWAY_TOKEN` - A strong token to secure the dashboard.
 - `TELEGRAM_BOT_TOKEN` - Telegram bot token from BotFather.
 - `TELEGRAM_ALLOWED_USERS` - Comma-separated numeric Telegram user IDs.
+- `DISCORD_BOT_TOKEN` - Discord bot token from [Developer Portal](https://discord.com/developers/applications).
+- `DISCORD_CHANNEL_ID` - Default Discord channel ID for bot messages.
+- `DISCORD_GUILD_ID` - Discord server (guild) ID.
+- `DISCORD_WEBHOOK_URL` - Discord webhook URL for notifications.
 - `HF_TOKEN` - Hugging Face token with write access for backups and HF providers.
 - `CLOUDFLARE_WORKERS_TOKEN` - Cloudflare token for outbound proxying and keep-alive automation.
 
@@ -254,6 +266,10 @@ With `CLOUDFLARE_WORKERS_TOKEN` set, HuggingMes can create a keep-alive worker t
 | `SYNC_INTERVAL` | `600` | Backup frequency in seconds |
 | `CLOUDFLARE_KEEPALIVE_ENABLED` | `true` | Set `false` to disable keep-awake worker |
 | `TELEGRAM_MODE` | `webhook` | `webhook` or `polling` (webhook auto-configured from `SPACE_HOST`) |
+| `DISCORD_BOT_TOKEN` | — | Discord bot token from Developer Portal |
+| `DISCORD_CHANNEL_ID` | — | Default Discord channel ID for bot messages |
+| `DISCORD_GUILD_ID` | — | Discord server (guild) ID |
+| `DISCORD_WEBHOOK_URL` | — | Discord webhook URL for notifications |
 | `DEV_MODE` | `true` | Set `false` to disable JupyterLab terminal at `/terminal/` |
 | `JUPYTER_TOKEN` | *(uses `GATEWAY_TOKEN`)* | Override terminal password (optional) |
 | `WEBHOOK_URL` | — | Endpoint for POST JSON restart notifications |
