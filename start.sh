@@ -224,6 +224,12 @@ if [ -n "${CLOUDFLARE_PROXY_URL:-}" ] && [ -z "$TELEGRAM_BASE_URL" ]; then
   export TELEGRAM_BASE_FILE_URL="${CLOUDFLARE_PROXY_URL}/file/bot"
 fi
 
+export DISCORD_BASE_URL="${DISCORD_BASE_URL:-}"
+if [ -n "${CLOUDFLARE_PROXY_URL:-}" ] && [ -z "$DISCORD_BASE_URL" ]; then
+  CLOUDFLARE_PROXY_URL="${CLOUDFLARE_PROXY_URL%/}"
+  export DISCORD_BASE_URL="${CLOUDFLARE_PROXY_URL}/discord"
+fi
+
 # ── Pool key promotion ──
 # Mirror first key from comma-separated pool vars into the singular env var.
 # Hermes providers read singular vars; this lets users supply pool keys like
@@ -318,6 +324,19 @@ if os.environ.get("TELEGRAM_BOT_TOKEN"):
             if item.strip()
         ])
 
+if os.environ.get("DISCORD_BOT_TOKEN"):
+    discord = platforms.setdefault("discord", {})
+    discord.setdefault("enabled", True)
+    extra = discord.setdefault("extra", {})
+    if os.environ.get("DISCORD_BASE_URL"):
+        extra.setdefault("base_url", os.environ["DISCORD_BASE_URL"])
+    if os.environ.get("DISCORD_GUILD_ID"):
+        extra.setdefault("guild_id", os.environ["DISCORD_GUILD_ID"])
+    if os.environ.get("DISCORD_CHANNEL_ID"):
+        extra.setdefault("channel_id", os.environ["DISCORD_CHANNEL_ID"])
+    if os.environ.get("DISCORD_WEBHOOK_URL"):
+        extra.setdefault("webhook_url", os.environ["DISCORD_WEBHOOK_URL"])
+
 path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
 path.chmod(0o600)
 PY
@@ -338,6 +357,11 @@ if [ -n "${TELEGRAM_BOT_TOKEN:-}" ]; then
   fi
 else
   echo "Telegram  : not configured"
+fi
+if [ -n "${DISCORD_BOT_TOKEN:-}" ]; then
+  echo "Discord   : enabled (guild: ${DISCORD_GUILD_ID:-auto})"
+else
+  echo "Discord   : not configured"
 fi
 if [ -n "${HF_TOKEN:-}" ]; then
   echo "Backup    : ${BACKUP_DATASET} (every ${SYNC_INTERVAL:-600}s)"
