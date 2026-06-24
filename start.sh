@@ -16,6 +16,8 @@ DASHBOARD_PORT="${DASHBOARD_PORT:-9119}"
 TELEGRAM_WEBHOOK_PORT="${TELEGRAM_WEBHOOK_PORT:-8765}"
 SYNC_INTERVAL="${SYNC_INTERVAL:-600}"
 BACKUP_DATASET="${BACKUP_DATASET_NAME:-huggingmes-backup}"
+GATEWAY_HEALTH_INTERVAL="${GATEWAY_HEALTH_INTERVAL:-5}"   # seconds between health polls
+GATEWAY_HEALTH_FAILURES="${GATEWAY_HEALTH_FAILURES:-3}"   # consecutive failures before restart
 CF_PROXY_ENV_FILE="/tmp/huggingmes-cloudflare-proxy.env"
 STARTUP_FILE="$HERMES_HOME/workspace/startup.sh"
 
@@ -25,6 +27,7 @@ export API_SERVER_HOST="${API_SERVER_HOST:-127.0.0.1}"
 export API_SERVER_PORT="$GATEWAY_API_PORT"
 export GATEWAY_HEALTH_URL="${GATEWAY_HEALTH_URL:-http://127.0.0.1:${GATEWAY_API_PORT}}"
 export TELEGRAM_WEBHOOK_PORT
+export HERMES_GATEWAY_NO_SUPERVISE="${HERMES_GATEWAY_NO_SUPERVISE:-true}"
 
 echo ""
 echo "  ╔══════════════════════════════════════════╗"
@@ -352,6 +355,17 @@ echo "Dashboard : http://127.0.0.1:${DASHBOARD_PORT}"
 echo "Gateway   : http://127.0.0.1:${GATEWAY_API_PORT}"
 echo ""
 
+# Wait for a TCP port to stop being bound (pure bash, no lsof/fuser).
+wait_for_port_free() {
+  local port="$1" timeout="${2:-30}" i
+  for ((i=0; i<timeout; i++)); do
+    (echo > "/dev/tcp/127.0.0.1/$port") 2>/dev/null || return 0
+    sleep 1
+  done
+  echo "Warning: port $port still bound after ${timeout}s; proceeding anyway." >&2
+  return 0
+}
+
 # ── JupyterLab terminal (on by default when GATEWAY_TOKEN is set) ──
 JUPYTER_PID=""
 start_jupyter() {
@@ -405,12 +419,25 @@ start_jupyter() {
 # ── Trap SIGTERM for graceful shutdown ──
 SYNC_LOOP_PID=""
 DASHBOARD_PID=""
+SHUTTING_DOWN=""
 graceful_shutdown() {
+  SHUTTING_DOWN=1
   echo "Shutting down HuggingMes..."
   if [ -n "${HF_TOKEN:-}" ]; then
     python3 "$APP_DIR/hermes-sync.py" sync-once || echo "Warning: shutdown sync failed."
   fi
-  kill $(jobs -p) 2>/dev/null || true
+  # Stop gateway via CLI so hermes sets gateway_state=stopped.
+  # This prevents 02-reconcile-profiles from auto-starting it on the next container boot.
+  timeout 5 hermes gateway stop 2>/dev/null || true
+  for pid in "${SYNC_LOOP_PID:-}" "${DASHBOARD_PID:-}" "${JUPYTER_PID:-}"; do
+    [ -n "$pid" ] && kill -TERM "$pid" 2>/dev/null || true
+  done
+  local deadline=$((SECONDS + 10))
+  while [[ -n $(jobs -p 2>/dev/null) ]]; do
+    [ "$SECONDS" -ge "$deadline" ] && break
+    sleep 1
+  done
+  kill -KILL $(jobs -p 2>/dev/null) 2>/dev/null || true
   exit 0
 }
 trap graceful_shutdown SIGTERM SIGINT
@@ -775,23 +802,34 @@ while true; do
     start_jupyter
   fi
 
-  echo "Launching Hermes gateway..."
-  (hermes gateway run 2>&1 | tee -a "$HERMES_HOME/logs/gateway.log") &
-  GATEWAY_PID=$!
+  [ -n "${SHUTTING_DOWN:-}" ] && break
 
+  # ── Launch or attach ──
+  # `hermes gateway run` exits immediately after handing off to s6-supervise.
+  # Use `hermes gateway restart` on subsequent iterations — `run` is refused when already supervised.
+  if ! (echo > "/dev/tcp/127.0.0.1/${GATEWAY_API_PORT}") 2>/dev/null; then
+    if [ "$GATEWAY_RESTART_COUNT" -eq 0 ]; then
+      echo "Launching Hermes gateway..."
+      wait_for_port_free "$GATEWAY_API_PORT"
+      hermes gateway run >> "$HERMES_HOME/logs/gateway.log" 2>&1 || true
+    else
+      echo "Restarting Hermes gateway (attempt ${GATEWAY_RESTART_COUNT})..."
+      hermes gateway restart >> "$HERMES_HOME/logs/gateway.log" 2>&1 || true
+    fi
+  fi
+
+  # ── Wait for readiness ──
   ready=false
   for ((i=0; i<GATEWAY_READY_TIMEOUT; i++)); do
+    [ -n "${SHUTTING_DOWN:-}" ] && break
     if (echo > "/dev/tcp/127.0.0.1/${GATEWAY_API_PORT}") 2>/dev/null; then
-      ready=true
-      break
-    fi
-    if ! kill -0 "$GATEWAY_PID" 2>/dev/null; then
-      break
+      ready=true; break
     fi
     sleep 1
   done
 
   if [ "$ready" != "true" ]; then
+    [ -n "${SHUTTING_DOWN:-}" ] && exit 0
     echo ""
     echo "Hermes gateway failed to expose the API health port. Last 40 log lines:"
     echo "----------------------------------------"
@@ -799,13 +837,22 @@ while true; do
     exit 1
   fi
 
-  # Start sync loop (only once — shared across all gateway restarts)
   start_background_sync_once
 
-  set +e
-  wait "$GATEWAY_PID"
-  GATEWAY_EXIT_CODE=$?
-  set -e
+  # ── Monitor via health endpoint ──
+  # GATEWAY_PID is not useful: the registration wrapper exits immediately after s6 hand-off.
+  GATEWAY_FAIL_COUNT=0
+  while true; do
+    [ -n "${SHUTTING_DOWN:-}" ] && break 2
+    sleep "${GATEWAY_HEALTH_INTERVAL}"
+    if (echo > "/dev/tcp/127.0.0.1/${GATEWAY_API_PORT}") 2>/dev/null; then
+      GATEWAY_FAIL_COUNT=0
+    else
+      GATEWAY_FAIL_COUNT=$((GATEWAY_FAIL_COUNT + 1))
+      echo "Gateway health miss ${GATEWAY_FAIL_COUNT}/${GATEWAY_HEALTH_FAILURES}..."
+      [ "$GATEWAY_FAIL_COUNT" -ge "$GATEWAY_HEALTH_FAILURES" ] && break
+    fi
+  done
 
   # Sync state before restart
   if [ -n "${HF_TOKEN:-}" ]; then
@@ -815,10 +862,10 @@ while true; do
 
   GATEWAY_RESTART_COUNT=$((GATEWAY_RESTART_COUNT + 1))
   if [ "$GATEWAY_MAX_RESTARTS" != "0" ] && [ "$GATEWAY_RESTART_COUNT" -ge "$GATEWAY_MAX_RESTARTS" ]; then
-    echo "Gateway exited (code ${GATEWAY_EXIT_CODE}); restart limit (${GATEWAY_MAX_RESTARTS}) reached."
-    exit "$GATEWAY_EXIT_CODE"
+    echo "Gateway exited; restart limit (${GATEWAY_MAX_RESTARTS}) reached."
+    exit 1
   fi
 
-  echo "Gateway exited (code ${GATEWAY_EXIT_CODE}); restarting in ${GATEWAY_RESTART_DELAY}s..."
+  echo "Gateway exited; restarting in ${GATEWAY_RESTART_DELAY}s..."
   sleep "$GATEWAY_RESTART_DELAY"
 done

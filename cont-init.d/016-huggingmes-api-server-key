@@ -1,0 +1,53 @@
+#!/command/with-contenv sh
+# Alias GATEWAY_TOKEN -> API_SERVER_KEY for the gateway s6 service.
+#
+# The hermes gateway runs as an independent s6 service (main-hermes) that reads
+# its environment from /run/s6/container_environment/ — NOT from start.sh's
+# exports. With API_SERVER_ENABLED=true (set via Dockerfile ENV) the gateway
+# tries to start its OpenAI-compatible API server on 127.0.0.1:8642, but
+# gateway/platforms/api_server.py *refuses to start without API_SERVER_KEY*,
+# even on loopback ("Refusing to start: API_SERVER_KEY is required"). Without a
+# key the platform disconnects and port 8642 stays unbound -> dashboard shows
+# "Gateway: Offline".
+#
+# GATEWAY_TOKEN is HuggingMes's single user-facing secret. Aliasing it to
+# API_SERVER_KEY (a) satisfies the gateway's key requirement and (b) makes /v1
+# auth match the token the health-server proxy already forwards — same value on
+# both sides.
+#
+# Runs as root in cont-init.d. Numbered 016 so it runs AFTER 015-supervise-perms
+# but BEFORE 02-reconcile-profiles — which auto-starts gateways whose persisted
+# state was "running". The key must be in container_environment before that
+# auto-start execs the gateway, or it loses the race and refuses to start.
+# Deliberately cannot fail the boot: no `set -e`, every risky op guarded,
+# explicit `exit 0`.
+set -u
+
+CE=/run/s6/container_environment
+
+# Only act when: the env dir exists and the user hasn't already supplied an
+# explicit API_SERVER_KEY (respect overrides).
+if [ -d "$CE" ] && [ ! -s "$CE/API_SERVER_KEY" ]; then
+  if [ -s "$CE/GATEWAY_TOKEN" ]; then
+    # Preferred path: alias GATEWAY_TOKEN so /v1 auth matches the token the
+    # health-server proxy already forwards.
+    if cp "$CE/GATEWAY_TOKEN" "$CE/API_SERVER_KEY" 2>/dev/null; then
+      echo "[api-server-key] aliased GATEWAY_TOKEN -> API_SERVER_KEY for the gateway"
+    else
+      echo "[api-server-key] WARN: could not write API_SERVER_KEY; /v1 API server will stay disabled"
+    fi
+  else
+    # GATEWAY_TOKEN absent: generate an ephemeral key so the s6-supervised
+    # gateway can still start its API server. start.sh generates its own key
+    # too, but runs *after* cont-init, so the gateway would miss it through
+    # container_environment without this fallback.
+    if python3 -c 'import secrets; print(secrets.token_urlsafe(32), end="")' \
+        > "$CE/API_SERVER_KEY" 2>/dev/null; then
+      echo "[api-server-key] WARN: no GATEWAY_TOKEN — ephemeral API_SERVER_KEY generated for this boot"
+    else
+      echo "[api-server-key] WARN: could not generate ephemeral key; /v1 API server will stay disabled"
+    fi
+  fi
+fi
+
+exit 0

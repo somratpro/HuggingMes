@@ -16,6 +16,7 @@ services:
       HF_TOKEN: ${HF_TOKEN:-}
       SPACE_HOST: ${SPACE_HOST:-localhost:7861}
       DEV_MODE: ${DEV_MODE:-true}
+      HERMES_GATEWAY_NO_SUPERVISE: ${HERMES_GATEWAY_NO_SUPERVISE:-true}
     volumes:
       - huggingmes-data:/opt/data
 
