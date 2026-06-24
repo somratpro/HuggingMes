@@ -25,13 +25,28 @@ set -u
 
 CE=/run/s6/container_environment
 
-# Only act when: the env dir exists, the user hasn't already supplied an
-# explicit API_SERVER_KEY (respect overrides), and GATEWAY_TOKEN is present.
-if [ -d "$CE" ] && [ ! -s "$CE/API_SERVER_KEY" ] && [ -s "$CE/GATEWAY_TOKEN" ]; then
-  if cp "$CE/GATEWAY_TOKEN" "$CE/API_SERVER_KEY" 2>/dev/null; then
-    echo "[api-server-key] aliased GATEWAY_TOKEN -> API_SERVER_KEY for the gateway"
+# Only act when: the env dir exists and the user hasn't already supplied an
+# explicit API_SERVER_KEY (respect overrides).
+if [ -d "$CE" ] && [ ! -s "$CE/API_SERVER_KEY" ]; then
+  if [ -s "$CE/GATEWAY_TOKEN" ]; then
+    # Preferred path: alias GATEWAY_TOKEN so /v1 auth matches the token the
+    # health-server proxy already forwards.
+    if cp "$CE/GATEWAY_TOKEN" "$CE/API_SERVER_KEY" 2>/dev/null; then
+      echo "[api-server-key] aliased GATEWAY_TOKEN -> API_SERVER_KEY for the gateway"
+    else
+      echo "[api-server-key] WARN: could not write API_SERVER_KEY; /v1 API server will stay disabled"
+    fi
   else
-    echo "[api-server-key] WARN: could not write API_SERVER_KEY; /v1 API server will stay disabled"
+    # GATEWAY_TOKEN absent: generate an ephemeral key so the s6-supervised
+    # gateway can still start its API server. start.sh generates its own key
+    # too, but runs *after* cont-init, so the gateway would miss it through
+    # container_environment without this fallback.
+    if python3 -c 'import secrets; print(secrets.token_urlsafe(32), end="")' \
+        > "$CE/API_SERVER_KEY" 2>/dev/null; then
+      echo "[api-server-key] WARN: no GATEWAY_TOKEN — ephemeral API_SERVER_KEY generated for this boot"
+    else
+      echo "[api-server-key] WARN: could not generate ephemeral key; /v1 API server will stay disabled"
+    fi
   fi
 fi
 

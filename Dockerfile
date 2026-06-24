@@ -140,7 +140,7 @@ RUN echo 'export PATH="/opt/hermes/.venv/bin:/opt/data/.local/bin:$PATH"' \
 # name overrides these defaults.
 ENV HERMES_HOME=/opt/data \
     HUGGINGMES_APP_DIR=/opt/huggingmes \
-    HERMES_AGENT_VERSION=${HERMES_AGENT_VERSION} \
+    HERMES_AGENT_VERSION=${HERMES_AGENT_VERSION:-latest} \
     PYTHONUNBUFFERED=1 \
     PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium \
     API_SERVER_ENABLED=true \
