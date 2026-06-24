@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.3.1 - 2026-06-22
+
+### Fixes
+
+- **Gateway API server never bound port 8642 → dashboard stuck "Offline"** — Root cause traced to the v0.3.0 s6 supervision migration. Upstream somratpro/HuggingMes launched the gateway as a child of `start.sh`, so it inherited `start.sh`'s exported `API_SERVER_ENABLED` / `API_SERVER_HOST` / `API_SERVER_PORT` / `API_SERVER_KEY` and bound `127.0.0.1:8642`. Under Hermes v0.17, `hermes gateway run` is redirected into an s6-supervised per-profile service (`gateway-default`) whose run script uses `with-contenv` — it reads `/run/s6/container_environment/`, **not** `start.sh`'s exports. So those vars never reached the gateway and the API-server platform stayed off. Fixed by propagating them through the container environment instead:
+  - `API_SERVER_ENABLED=true`, `API_SERVER_HOST=127.0.0.1`, `API_SERVER_PORT=8642` added to the Dockerfile `ENV` block (Docker `ENV` is dumped into `container_environment` by s6-overlay — proven by `HERMES_HOME`, which reaches the gateway the same way).
+  - New cont-init.d hook `016-huggingmes-api-server-key` aliases `GATEWAY_TOKEN` → `API_SERVER_KEY` in `container_environment`. The gateway's API server **refuses to start without `API_SERVER_KEY`** (`gateway/platforms/api_server.py`), even on loopback; without it the platform reported "api_server disconnected". Numbered `016` so it runs before `02-reconcile-profiles`, which auto-starts gateways whose persisted state was "running" — the key must be in place before that auto-start execs the gateway. Hook is fail-safe (`set -u`, guarded, explicit `exit 0`) and only acts when `GATEWAY_TOKEN` is set and the user hasn't supplied their own `API_SERVER_KEY`.
+- **Recurring `transcription_tools.py` Errno 13 on startup** — The v0.3.0 fix used `chmod u+w`, which only grants write to the file's owner (root, from build time). HF Spaces runs the container as an arbitrary non-root UID, so `u+w` granted that UID nothing and Hermes's `workspace/startup.sh` self-patch kept failing. Changed both the Dockerfile and `start.sh` to `chmod a+w` (and `a+rwx` on directories, after first making them traversable so `find` doesn't silently skip subdirs).
+- **Telegram tile always showed "warn"** — `telegramTone` defaulted to `"warn"`, mislabeling an unconfigured Telegram as a warning. Now defaults to `"neutral"`, shows `"ok"` when configured and connected, and `"warn"` only when configured but not yet working.
+- **Dashboard didn't reflect gateway recovery** — Added `<meta http-equiv="refresh" content="15">` so the status page reflects the Offline→Online transition during the gateway's boot window without a manual reload.
+
+## 0.3.0 - 2026-06-21
+
+### Features
+
+- **`ENABLE_ENV_BUILDER` flag** — ENV Builder is now opt-in (`false` by default). Set `ENABLE_ENV_BUILDER=true` to show the `/env-builder` link on the dashboard and enable the route. Users who manage secrets directly through HF Space settings have one less exposed surface.
+- **`DEV_MODE`-gated terminal button** — "💻 Open Terminal →" on the dashboard is hidden when `DEV_MODE=false`, consistent with the existing JupyterLab skip logic already in `start.sh`.
+
+### Fixes
+
+- **Hermes v0.17 startup crash — Python permission denied** — Hermes v0.17 ships its `.py` files read-only but patches them during `workspace/startup.sh`. Added `find /opt/hermes -name "*.py" -exec chmod u+w {} +` in both the Dockerfile (build time) and `start.sh` (runtime, after HF Dataset restore) so self-patching succeeds.
+- **Restore Errno 17 (File exists)** — `shutil.rmtree(ignore_errors=True)` silently failed when a restore target was a symlink-to-directory; the subsequent `copytree` raised "File exists". Fixed by checking `is_symlink()` before rmtree and using `dirs_exist_ok=True` on `copytree`.
+- **Restore Errno 13 (Permission denied)** — Hermes ships some skill directories read-only, causing rmtree to fail and restore to crash. Added `_make_writable()` to recursively `chmod u+w` the target tree before removal.
+- **Events feed disconnected / tool calls not appearing in chat** — Hermes v0.17 serves `/api/events` and other WebSocket endpoints from the dashboard process (port 9119), not the gateway (port 8642). The WebSocket upgrade handler now routes `/api/*`, `/assets/*`, `/dashboard-plugins/*`, and `/ds-assets/*` to `DASHBOARD_PORT`. `Origin` headers are rewritten to the internal target address so hermes's `_ws_host_origin_is_allowed()` check passes.
+- **Gateway showing Offline/Unreachable while hermes is running** — `statusPayload()` ran three sequential `canConnect()` calls (600 ms timeout each); worst case 1800 ms, long enough for the gateway to time out under load and flip to Offline. Replaced with `Promise.all()` (max 600 ms total) and raised the gateway-specific timeout to 2000 ms.
+- **SSE events not flushing to browser** — Upstream hop-by-hop headers (`transfer-encoding`, `connection`, `keep-alive`) forwarded from the hermes backend caused double-chunking that blocked SSE flush. These headers are now stripped; `socket.setNoDelay(true)` added for SSE streams.
+
+### Changes
+
+- Gateway supervision migrated to `hermes gateway run` / `hermes gateway stop` CLI commands for proper s6-overlay lifecycle management, with a graceful shutdown timeout to prevent hangs on Space restart.
+- `hermes-sync.py`: renamed loop variable `stat` → `file_stat` in `metadata_marker` to stop it shadowing the `stat` module import used in `_make_writable`.
+- `health-server.js`: replaced nested ternaries in `renderDashboard` (`syncTone`, `telegramTone`, `keepAliveTone`, `keepAliveDetail`) with `if/else` chains.
+- `env-builder.js`: simplified `...[...new Set(...)]` to `...new Set(...)`.
+
 ## 0.2.1 - 2026-05-20
 
 ### Fixes
